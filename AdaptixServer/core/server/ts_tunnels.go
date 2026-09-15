@@ -94,7 +94,8 @@ func (ts *Teamserver) TsTunnelClientStart(AgentId string, Listen bool, Type int,
 			commandline = fmt.Sprintf("[from browser] reverse_port_fwd start %v %v:%v", Lport, Thost, Tport)
 			message = fmt.Sprintf("Starting reverse port forwarding %v to %v:%v", Lport, Thost, Tport)
 		} else {
-
+			commandline = fmt.Sprintf("[from browser] reverse_port_fwd (client) start %v %v:%v", Lport, Thost, Tport)
+			message = fmt.Sprintf("Starting reverse port forwarding (client '%v') %v to %v:%v", Client, Lport, Thost, Tport)
 		}
 
 	default:
@@ -124,6 +125,16 @@ func (ts *Teamserver) TsTunnelClientStart(AgentId string, Listen bool, Type int,
 		tunnel.Active = true
 		tunnel.TaskId, _ = krypt.GenerateUID(8)
 		taskId = tunnel.TaskId
+
+		if Type == adaptix.TUNNEL_TYPE_REVERSE {
+			id, _ := strconv.ParseInt(tunnelId, 16, 64)
+			port, err := strconv.Atoi(tunnel.Data.Port)
+			if err != nil {
+				return "", fmt.Errorf("invalid port: %v", err)
+			}
+			taskData := tunnel.Callbacks.Reverse(int(id), port)
+			tunnelManageTask(agent, taskData)
+		}
 
 		packet := CreateSpTunnelCreate(tunnel.Data)
 		ts.TsSyncAllClientsWithCategory(packet, SyncCategoryTunnels)
@@ -680,7 +691,7 @@ func (ts *Teamserver) TsTunnelConnectionAccept(tunnelId int, channelId int) {
 	if tunnel.Data.Client == "" {
 		handlerReverseAccept(ts.TunnelManager, agent, tunnel, channelId)
 	} else {
-		// TODO: reverse proxy to client
+		handlerReverseAcceptClient(ts.TunnelManager, agent, tunnel, channelId)
 	}
 }
 
@@ -792,6 +803,10 @@ func handleTunChannelCreateClient(tm *TunnelManager, agent *Agent, tunnel *Tunne
 		tport, _ := strconv.Atoi(tunnel.Data.Fport)
 		taskData = tunnel.Callbacks.ConnectTCP(tunChannel.channelId, adaptix.TUNNEL_TYPE_LOCAL_PORT, addressType, tunnel.Data.Fhost, tport)
 
+	case adaptix.TUNNEL_TYPE_REVERSE:
+		tm.RegisterChannel(tunnel.Data.TunnelId, tunnel, tunChannel)
+		return
+
 	default:
 		tm.closeChannelInternal(tunnel, tunChannel)
 		return
@@ -817,6 +832,32 @@ func handlerReverseAccept(tm *TunnelManager, agent *Agent, tunnel *Tunnel, chann
 	tm.RegisterChannel(tunnel.Data.TunnelId, tunnel, tunChannel)
 
 	relaySocketToTunnel(tm, agent, tunnel, tunChannel, false)
+}
+
+func handlerReverseAcceptClient(tm *TunnelManager, agent *Agent, tunnel *Tunnel, channelId int) {
+	var tunChannel *TunnelChannel
+
+	timeout := time.After(10 * time.Second)
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		entry, ok := tm.GetChannelByIdOnly(channelId)
+		if ok && entry.Channel != nil && entry.Channel.wsconn != nil {
+			tunChannel = entry.Channel
+			break
+		}
+
+		select {
+		case <-timeout:
+			rawTaskData := tunnel.Callbacks.Close(channelId)
+			tunnelManageTask(agent, rawTaskData)
+			return
+		case <-ticker.C:
+		}
+	}
+
+	relayWebsocketToTunnel(tm, agent, tunnel, tunChannel, false)
 }
 
 /// process socket
