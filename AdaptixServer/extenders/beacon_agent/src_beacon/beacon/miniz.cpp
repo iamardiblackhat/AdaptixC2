@@ -4263,7 +4263,7 @@ extern "C"
 
     mz_bool mz_zip_reader_is_file_a_directory(mz_zip_archive* pZip, mz_uint file_index)
     {
-        mz_uint filename_len, attribute_mapping_id, external_attr;
+        mz_uint filename_len, external_attr;
         const mz_uint8* p = mz_zip_get_cdh(pZip, file_index);
         if (!p)
         {
@@ -4278,12 +4278,7 @@ extern "C"
                 return MZ_TRUE;
         }
 
-        /* Bugfix: This code was also checking if the internal attribute was non-zero, which wasn't correct. */
-        /* Most/all zip writers (hopefully) set DOS file/directory attributes in the low 16-bits, so check for the DOS directory flag and ignore the source OS ID in the created by field. */
-        /* FIXME: Remove this check? Is it necessary - we already check the filename. */
-        attribute_mapping_id = MZ_READ_LE16(p + MZ_ZIP_CDH_VERSION_MADE_BY_OFS) >> 8;
-        (void)attribute_mapping_id;
-
+        /* Most/all zip writers (hopefully) set DOS file/directory attributes in the low 16-bits, so check for the DOS directory flag. */
         external_attr = MZ_READ_LE32(p + MZ_ZIP_CDH_EXTERNAL_ATTR_OFS);
         if ((external_attr & MZ_ZIP_DOS_DIR_ATTRIBUTE_BITFLAG) != 0)
         {
