@@ -3523,7 +3523,7 @@ extern "C"
 
         memset(pZip->m_pState, 0, sizeof(mz_zip_internal_state));
         MZ_ZIP_ARRAY_SET_ELEMENT_SIZE(&pZip->m_pState->m_central_dir, sizeof(mz_uint8));
-        MZ_ZIP_ARRAY_SET_ELEMENT_SIZE(&pZip->m_pState->m_central_dir_offsets, sizeof(mz_uint32));
+        MZ_ZIP_ARRAY_SET_ELEMENT_SIZE(&pZip->m_pState->m_central_dir_offsets, sizeof(size_t));
         MZ_ZIP_ARRAY_SET_ELEMENT_SIZE(&pZip->m_pState->m_sorted_central_dir_offsets, sizeof(mz_uint32));
         pZip->m_pState->m_init_flags = flags;
         pZip->m_pState->m_zip64 = MZ_FALSE;
@@ -3536,8 +3536,8 @@ extern "C"
 
     static MZ_FORCEINLINE mz_bool mz_zip_reader_filename_less(const mz_zip_array* pCentral_dir_array, const mz_zip_array* pCentral_dir_offsets, mz_uint l_index, mz_uint r_index)
     {
-        const mz_uint8* pL = &MZ_ZIP_ARRAY_ELEMENT(pCentral_dir_array, mz_uint8, MZ_ZIP_ARRAY_ELEMENT(pCentral_dir_offsets, mz_uint32, l_index)), * pE;
-        const mz_uint8* pR = &MZ_ZIP_ARRAY_ELEMENT(pCentral_dir_array, mz_uint8, MZ_ZIP_ARRAY_ELEMENT(pCentral_dir_offsets, mz_uint32, r_index));
+        const mz_uint8* pL = &MZ_ZIP_ARRAY_ELEMENT(pCentral_dir_array, mz_uint8, MZ_ZIP_ARRAY_ELEMENT(pCentral_dir_offsets, size_t, l_index)), * pE;
+        const mz_uint8* pR = &MZ_ZIP_ARRAY_ELEMENT(pCentral_dir_array, mz_uint8, MZ_ZIP_ARRAY_ELEMENT(pCentral_dir_offsets, size_t, r_index));
         mz_uint l_len = MZ_READ_LE16(pL + MZ_ZIP_CDH_FILENAME_LEN_OFS), r_len = MZ_READ_LE16(pR + MZ_ZIP_CDH_FILENAME_LEN_OFS);
         mz_uint8 l = 0, r = 0;
         pL += MZ_ZIP_CENTRAL_DIR_HEADER_SIZE;
@@ -3779,11 +3779,13 @@ extern "C"
 
             cdir_entries_on_this_disk = (mz_uint32)zip64_cdir_total_entries_on_this_disk;
 
-            /* Check for miniz's current practical limits (sorry, this should be enough for millions of files) */
-            if (zip64_size_of_central_directory > MZ_UINT32_MAX)
-                return mz_zip_set_error(pZip, MZ_ZIP_UNSUPPORTED_CDIR_SIZE);
+            if (sizeof(size_t) == sizeof(mz_uint32))
+            {
+                if (zip64_size_of_central_directory > MZ_UINT32_MAX)
+                    return mz_zip_set_error(pZip, MZ_ZIP_UNSUPPORTED_CDIR_SIZE);
+            }
 
-            cdir_size = (mz_uint32)zip64_size_of_central_directory;
+            cdir_size = (size_t)zip64_size_of_central_directory;
 
             num_this_disk = MZ_READ_LE32(pZip64_end_of_central_dir + MZ_ZIP64_ECDH_NUM_THIS_DISK_OFS);
 
@@ -3857,7 +3859,7 @@ extern "C"
                 if ((n < MZ_ZIP_CENTRAL_DIR_HEADER_SIZE) || (MZ_READ_LE32(p) != MZ_ZIP_CENTRAL_DIR_HEADER_SIG))
                     return mz_zip_set_error(pZip, MZ_ZIP_INVALID_HEADER_OR_CORRUPTED);
 
-                MZ_ZIP_ARRAY_ELEMENT(&pZip->m_pState->m_central_dir_offsets, mz_uint32, i) = (mz_uint32)(p - (const mz_uint8*)pZip->m_pState->m_central_dir.m_p);
+                MZ_ZIP_ARRAY_ELEMENT(&pZip->m_pState->m_central_dir_offsets, size_t, i) = (size_t)(p - (const mz_uint8*)pZip->m_pState->m_central_dir.m_p);
 
                 if (sort_central_dir)
                     MZ_ZIP_ARRAY_ELEMENT(&pZip->m_pState->m_sorted_central_dir_offsets, mz_uint32, i) = i;
@@ -4208,7 +4210,7 @@ extern "C"
     {
         if ((!pZip) || (!pZip->m_pState) || (file_index >= pZip->m_total_files))
             return NULL;
-        return &MZ_ZIP_ARRAY_ELEMENT(&pZip->m_pState->m_central_dir, mz_uint8, MZ_ZIP_ARRAY_ELEMENT(&pZip->m_pState->m_central_dir_offsets, mz_uint32, file_index));
+        return &MZ_ZIP_ARRAY_ELEMENT(&pZip->m_pState->m_central_dir, mz_uint8, MZ_ZIP_ARRAY_ELEMENT(&pZip->m_pState->m_central_dir_offsets, size_t, file_index));
     }
 
     mz_bool mz_zip_reader_is_file_encrypted(mz_zip_archive* pZip, mz_uint file_index)
@@ -4306,7 +4308,7 @@ extern "C"
 
         /* Extract fields from the central directory record. */
         pStat->m_file_index = file_index;
-        pStat->m_central_dir_ofs = MZ_ZIP_ARRAY_ELEMENT(&pZip->m_pState->m_central_dir_offsets, mz_uint32, file_index);
+        pStat->m_central_dir_ofs = MZ_ZIP_ARRAY_ELEMENT(&pZip->m_pState->m_central_dir_offsets, size_t, file_index);
         pStat->m_version_made_by = MZ_READ_LE16(p + MZ_ZIP_CDH_VERSION_MADE_BY_OFS);
         pStat->m_version_needed = MZ_READ_LE16(p + MZ_ZIP_CDH_VERSION_NEEDED_OFS);
         pStat->m_bit_flag = MZ_READ_LE16(p + MZ_ZIP_CDH_BIT_FLAG_OFS);
@@ -4520,7 +4522,7 @@ extern "C"
 
         for (file_index = 0; file_index < pZip->m_total_files; file_index++)
         {
-            const mz_uint8* pHeader = &MZ_ZIP_ARRAY_ELEMENT(&pZip->m_pState->m_central_dir, mz_uint8, MZ_ZIP_ARRAY_ELEMENT(&pZip->m_pState->m_central_dir_offsets, mz_uint32, file_index));
+            const mz_uint8* pHeader = &MZ_ZIP_ARRAY_ELEMENT(&pZip->m_pState->m_central_dir, mz_uint8, MZ_ZIP_ARRAY_ELEMENT(&pZip->m_pState->m_central_dir_offsets, size_t, file_index));
             mz_uint filename_len = MZ_READ_LE16(pHeader + MZ_ZIP_CDH_FILENAME_LEN_OFS);
             const char* pFilename = (const char*)pHeader + MZ_ZIP_CENTRAL_DIR_HEADER_SIZE;
             if (filename_len < name_len)
@@ -5858,7 +5860,7 @@ extern "C"
         memset(pZip->m_pState, 0, sizeof(mz_zip_internal_state));
 
         MZ_ZIP_ARRAY_SET_ELEMENT_SIZE(&pZip->m_pState->m_central_dir, sizeof(mz_uint8));
-        MZ_ZIP_ARRAY_SET_ELEMENT_SIZE(&pZip->m_pState->m_central_dir_offsets, sizeof(mz_uint32));
+        MZ_ZIP_ARRAY_SET_ELEMENT_SIZE(&pZip->m_pState->m_central_dir_offsets, sizeof(size_t));
         MZ_ZIP_ARRAY_SET_ELEMENT_SIZE(&pZip->m_pState->m_sorted_central_dir_offsets, sizeof(mz_uint32));
 
         pZip->m_pState->m_zip64 = zip64;
@@ -6203,7 +6205,7 @@ extern "C"
         const char* user_extra_data, mz_uint user_extra_data_len)
     {
         mz_zip_internal_state* pState = pZip->m_pState;
-        mz_uint32 central_dir_ofs = (mz_uint32)pState->m_central_dir.m_size;
+        size_t central_dir_ofs = pState->m_central_dir.m_size;
         size_t orig_central_dir_size = pState->m_central_dir.m_size;
         mz_uint8 central_dir_header[MZ_ZIP_CENTRAL_DIR_HEADER_SIZE];
 
@@ -6213,9 +6215,11 @@ extern "C"
                 return mz_zip_set_error(pZip, MZ_ZIP_FILE_TOO_LARGE);
         }
 
-        /* miniz doesn't support central dirs >= MZ_UINT32_MAX bytes yet */
-        if (((mz_uint64)pState->m_central_dir.m_size + MZ_ZIP_CENTRAL_DIR_HEADER_SIZE + filename_size + extra_size + user_extra_data_len + comment_size) >= MZ_UINT32_MAX)
-            return mz_zip_set_error(pZip, MZ_ZIP_UNSUPPORTED_CDIR_SIZE);
+        if (sizeof(size_t) == sizeof(mz_uint32))
+        {
+            if (((mz_uint64)pState->m_central_dir.m_size + MZ_ZIP_CENTRAL_DIR_HEADER_SIZE + filename_size + extra_size + user_extra_data_len + comment_size) >= MZ_UINT32_MAX)
+                return mz_zip_set_error(pZip, MZ_ZIP_UNSUPPORTED_CDIR_SIZE);
+        }
 
         if (!mz_zip_writer_create_central_dir_header(pZip, central_dir_header, filename_size, (mz_uint16)(extra_size + user_extra_data_len), comment_size, uncomp_size, comp_size, uncomp_crc32, method, bit_flags, dos_time, dos_date, local_header_ofs, ext_attributes))
             return mz_zip_set_error(pZip, MZ_ZIP_INTERNAL_ERROR);
@@ -6368,9 +6372,11 @@ extern "C"
 
         num_alignment_padding_bytes = mz_zip_writer_compute_padding_needed_for_file_alignment(pZip);
 
-        /* miniz doesn't support central dirs >= MZ_UINT32_MAX bytes yet */
-        if (((mz_uint64)pState->m_central_dir.m_size + MZ_ZIP_CENTRAL_DIR_HEADER_SIZE + archive_name_size + MZ_ZIP64_MAX_CENTRAL_EXTRA_FIELD_SIZE + comment_size) >= MZ_UINT32_MAX)
-            return mz_zip_set_error(pZip, MZ_ZIP_UNSUPPORTED_CDIR_SIZE);
+        if (sizeof(size_t) == sizeof(mz_uint32))
+        {
+            if (((mz_uint64)pState->m_central_dir.m_size + MZ_ZIP_CENTRAL_DIR_HEADER_SIZE + archive_name_size + MZ_ZIP64_MAX_CENTRAL_EXTRA_FIELD_SIZE + comment_size) >= MZ_UINT32_MAX)
+                return mz_zip_set_error(pZip, MZ_ZIP_UNSUPPORTED_CDIR_SIZE);
+        }
 
         if (!pState->m_zip64)
         {
@@ -6627,9 +6633,11 @@ extern "C"
 
         num_alignment_padding_bytes = mz_zip_writer_compute_padding_needed_for_file_alignment(pZip);
 
-        /* miniz doesn't support central dirs >= MZ_UINT32_MAX bytes yet */
-        if (((mz_uint64)pState->m_central_dir.m_size + MZ_ZIP_CENTRAL_DIR_HEADER_SIZE + archive_name_size + MZ_ZIP64_MAX_CENTRAL_EXTRA_FIELD_SIZE + comment_size) >= MZ_UINT32_MAX)
-            return mz_zip_set_error(pZip, MZ_ZIP_UNSUPPORTED_CDIR_SIZE);
+        if (sizeof(size_t) == sizeof(mz_uint32))
+        {
+            if (((mz_uint64)pState->m_central_dir.m_size + MZ_ZIP_CENTRAL_DIR_HEADER_SIZE + archive_name_size + MZ_ZIP64_MAX_CENTRAL_EXTRA_FIELD_SIZE + comment_size) >= MZ_UINT32_MAX)
+                return mz_zip_set_error(pZip, MZ_ZIP_UNSUPPORTED_CDIR_SIZE);
+        }
 
         if (!pState->m_zip64)
         {
@@ -7058,6 +7066,7 @@ extern "C"
     mz_bool mz_zip_writer_add_from_zip_reader(mz_zip_archive* pZip, mz_zip_archive* pSource_zip, mz_uint src_file_index)
     {
         mz_uint n, bit_flags, num_alignment_padding_bytes, src_central_dir_following_data_size;
+        size_t cdir_ofs_val;
         mz_uint64 src_archive_bytes_remaining, local_dir_header_ofs;
         mz_uint64 cur_src_file_ofs, cur_dst_file_ofs;
         mz_uint32 local_header_u32[(MZ_ZIP_LOCAL_DIR_HEADER_SIZE + sizeof(mz_uint32) - 1) / sizeof(mz_uint32)];
@@ -7095,9 +7104,11 @@ extern "C"
         src_ext_len = MZ_READ_LE16(pSrc_central_header + MZ_ZIP_CDH_EXTRA_LEN_OFS);
         src_central_dir_following_data_size = src_filename_len + src_ext_len + src_comment_len;
 
-        /* TODO: We don't support central dir's >= MZ_UINT32_MAX bytes right now (+32 fudge factor in case we need to add more extra data) */
-        if ((pState->m_central_dir.m_size + MZ_ZIP_CENTRAL_DIR_HEADER_SIZE + src_central_dir_following_data_size + 32) >= MZ_UINT32_MAX)
-            return mz_zip_set_error(pZip, MZ_ZIP_UNSUPPORTED_CDIR_SIZE);
+        if (sizeof(size_t) == sizeof(mz_uint32))
+        {
+            if ((pState->m_central_dir.m_size + MZ_ZIP_CENTRAL_DIR_HEADER_SIZE + src_central_dir_following_data_size + 32) >= MZ_UINT32_MAX)
+                return mz_zip_set_error(pZip, MZ_ZIP_UNSUPPORTED_CDIR_SIZE);
+        }
 
         num_alignment_padding_bytes = mz_zip_writer_compute_padding_needed_for_file_alignment(pZip);
 
@@ -7396,16 +7407,17 @@ extern "C"
             }
         }
 
-        /* This shouldn't trigger unless we screwed up during the initial sanity checks */
-        if (pState->m_central_dir.m_size >= MZ_UINT32_MAX)
+        if (sizeof(size_t) == sizeof(mz_uint32))
         {
-            /* TODO: Support central dirs >= 32-bits in size */
-            mz_zip_array_resize(pZip, &pState->m_central_dir, orig_central_dir_size, MZ_FALSE);
-            return mz_zip_set_error(pZip, MZ_ZIP_UNSUPPORTED_CDIR_SIZE);
+            if (pState->m_central_dir.m_size >= MZ_UINT32_MAX)
+            {
+                mz_zip_array_resize(pZip, &pState->m_central_dir, orig_central_dir_size, MZ_FALSE);
+                return mz_zip_set_error(pZip, MZ_ZIP_UNSUPPORTED_CDIR_SIZE);
+            }
         }
 
-        n = (mz_uint32)orig_central_dir_size;
-        if (!mz_zip_array_push_back(pZip, &pState->m_central_dir_offsets, &n, 1))
+        cdir_ofs_val = orig_central_dir_size;
+        if (!mz_zip_array_push_back(pZip, &pState->m_central_dir_offsets, &cdir_ofs_val, 1))
         {
             mz_zip_array_resize(pZip, &pState->m_central_dir, orig_central_dir_size, MZ_FALSE);
             return mz_zip_set_error(pZip, MZ_ZIP_ALLOC_FAILED);
@@ -7430,8 +7442,11 @@ extern "C"
 
         if (pState->m_zip64)
         {
-            if ((mz_uint64)pState->m_central_dir.m_size >= MZ_UINT32_MAX)
-                return mz_zip_set_error(pZip, MZ_ZIP_TOO_MANY_FILES);
+            if (sizeof(size_t) == sizeof(mz_uint32))
+            {
+                if ((mz_uint64)pState->m_central_dir.m_size >= MZ_UINT32_MAX)
+                    return mz_zip_set_error(pZip, MZ_ZIP_TOO_MANY_FILES);
+            }
         }
         else
         {
